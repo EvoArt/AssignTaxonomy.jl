@@ -1,0 +1,13 @@
+name = "AssignTaxonomy"
+uuid = "941572e2-79a6-4ec3-8380-7ad5c8caa571"
+authors = ["Arthur Newbury"]
+version = "0.1.0"
+
+[compat]
+julia = "1.6"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
