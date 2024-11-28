@@ -9,7 +9,7 @@ base_vals = Base.ImmutableDict(DNA_A=>0,DNA_C=>1,DNA_G=>2,DNA_T=>3)
 
 word_prior(n,N) = (n+0.5)/(N+1)
 function word_priors!(priors ::Vector,N)
-    @turbo for i in 1:N
+    for i in 1:N
         priors[i] = word_prior(priors[i],N)
     end
 end

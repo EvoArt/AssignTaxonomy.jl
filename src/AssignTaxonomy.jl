@@ -1,8 +1,6 @@
 module AssignTaxonomy
 
-using FASTX, BioSequences, LoopVectorization
+using FASTX, BioSequences, VectorizedKmers
 
 include("classifier.jl")
-# Write your package code here.
-
 end
