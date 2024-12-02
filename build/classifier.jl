@@ -5,29 +5,23 @@
 # The psition of the word in a sequence is ignored.
 # Only the words occurring in the query contribute to the score.
 
-"""
-The results returned by `assign_taxonomy`. Individual columns can be accessed by e.g. `my_result.Genus`, 
-and a list of column names can be accessed by `names(my_result)`. The result can 
-be converted to a `DataFrame` by `using DataFrames; DataFrame(my_result)` or written to CSV with headers by 
-`using CSV; CSV.write("my_result.csv",my_result)`.
-"""
 struct ClassificationResult{T <: AbstractVecOrMat} <: Tables.AbstractColumns
+    """
+    The results returned by `assign_taxonomy`. Individual columns can be accessed by e.g. `my_result.Genus`, 
+    and a list of column names can be accessed by `names(my_result)`. The result can 
+    be converted to a `DataFrame by `using DataFrames; DataFrame(my_result)` or written to CSV with headers by 
+    `using CSV; CSV.write("my_result.csv",my_result)`.
+    """
     names::Vector{Symbol}
     lookup::Dict{Symbol, Int}
     values::T
 end
-
-function classification_result(data) 
+function classification_result(ids,seqs,assignments) 
     class = Symbol.(["ID","Sequence","Kingdom", "Phylum", "Class", "Order", "Family", "Genus","Confidence"])
     ClassificationResult(class,
     Dict(class .=> 1:9),
-    data
+    hcat(ids,seqs,assignments)
     )
-end
-
-function classification_result(ids,seqs,assignments) 
-    classification_result(hcat(ids,seqs,assignments))
-   
 end
 
 function Base.show(io::IO, cr::ClassificationResult)
@@ -108,33 +102,25 @@ end
 #### Top level function
 
 ### Most typical function call, taking reference and target fasta input
-
-
-
-
-"""
-    assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-
-
-Use the [RDP Naive Bayesian Classifier algorithm](https://pubmed.ncbi.nlm.nih.gov/17586664/) to assign taxonomic 
-classifications based on DNA sequence data. This function takes (the paths to) two fasta files
-`seq_fasta` and `ref_fasta`, containing target sequences and a reference database respectively.
-It  returns `Tables.jl` compatible `ClassificationResult`, containing the target sequence IDs, 
-target sequences, taxonomic classifications and bootstrapped confidence levels.
-
-- `seq_fasta`: Path to a fasta of sequnces to be classified.
-- `ref_fasta`: Path to a fasta reference database.
-
-- `k`: Length of kmers to use.
-- `n_bootstrap`: Number of bootstrap iterations to perform.
-- `keep_lp`: Return array of log probabilities alongside classification result if `true` 
-- `lp`: Array of log probabilities for the classifier to use. 
-
-`ref_fasta` must be a DADA2-formatted reference database. 
-See [here](https://benjjneb.github.io/dada2/training.html) for examples.
-"""
 function assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    """
+    Use the [RDP Naive Bayesian Classifier algorithm](10.1128/AEM.00062-07) to assign taxonomic 
+    classifications based on DNA sequence data. This function takes (the paths to) two fasta files
+    `seq_fasta` and `ref_fasta`, containing target sequences and a reference database respectively.
+    It  returns `Tables.jl` compatible `ClassificationResult`, containing the target sequence IDs, 
+    target sequences, taxonomic classifications and bootstrapped confidence levels.
 
+    - `seq_fasta`: Path to a fasta of sequnces to be classified.
+    - `ref_fasta`: Path to a fasta reference database.
+    
+    - `k`: Length of kmers to use.
+    - `n_bootstrap`: Number of bootstrap iterations to perform.
+    - `keep_lp`: Return array of log probabilities alongside classification result if `true` 
+    - `lp`: Array of log probabilities for the classifier to use. 
+    
+    `ref_fasta` must be a DADA2-formatted reference database. 
+    See [here](https://benjjneb.github.io/dada2/training.html) for examples.
+    """
     seqs,ids = get_targets(seq_fasta)
     refs,taxa = get_reference(ref_fasta)
     assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
