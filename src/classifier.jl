@@ -5,161 +5,163 @@
 # The psition of the word in a sequence is ignored.
 # Only the words occurring in the query contribute to the score.
 
-base_vals = Base.ImmutableDict(DNA_A=>0,DNA_C=>1,DNA_G=>2,DNA_T=>3)
-
-word_prior(n,N) = (n+0.5)/(N+1)
-function word_priors!(priors ::Vector,N)
-    for i in 1:N
-        priors[i] = word_prior(priors[i],N)
-    end
+struct ClassificationResult{T <: AbstractVecOrMat} <: Tables.AbstractColumns
+    """
+    The results returned by `assign_taxonomy`. Individual columns can be accessed by e.g. `my_result.Genus`, 
+    and a list of column names can be accessed by `names(my_result)`. The result can 
+    be converted to a `DataFrame by `using DataFrames; DataFrame(my_result)` or written to CSV with headers by 
+    `using CSV; CSV.write("my_result.csv",my_result)`.
+    """
+    names::Vector{Symbol}
+    lookup::Dict{Symbol, Int}
+    values::T
+end
+function classification_result(ids,seqs,assignments) 
+    class = Symbol.(["ID","Sequence","Kingdom", "Phylum", "Class", "Order", "Family", "Genus","Confidence"])
+    ClassificationResult(class,
+    Dict(class .=> 1:9),
+    hcat(ids,seqs,assignments)
+    )
 end
 
-conditional_prob(m,P,M) = (m+P)/(M+1)
+function Base.show(io::IO, cr::ClassificationResult)
+    pretty_table(
+    values(cr)[:,[1,8,9]];
+    formatters    = ft_printf("%5.2f", 2:4),
+    header        = names(cr)[[1,8,9]],
+    header_crayon = crayon"yellow bold")
+end
 
-function get_mer_idx(mer)
-    idx = 0
-    for base in mer
-        idx = 4*idx + base_vals[base]
+Tables.istable(::Type{<:ClassificationResult}) = true
+names(m::ClassificationResult) = getfield(m, :names)
+values(m::ClassificationResult) = getfield(m, :values)
+lookup(m::ClassificationResult) = getfield(m, :lookup)
+Tables.schema(m::ClassificationResult{T}) where {T} = Tables.Schema(names(m), fill(eltype(T), size(values(m), 2)))
+Tables.columnaccess(::Type{<:ClassificationResult}) = true
+Tables.columns(m::ClassificationResult) = m
+Tables.getcolumn(m::ClassificationResult, ::Type{T}, col::Int, nm::Symbol) where {T} = values(m)[:, col]
+Tables.getcolumn(m::ClassificationResult, nm::Symbol) = values(m)[:, lookup(m)[nm]]
+Tables.getcolumn(m::ClassificationResult, i::Int) = values(m)[:, i]
+Tables.columnnames(m::ClassificationResult) = names(m)
+
+
+
+
+#### Underlying algorithm
+function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp=false)
+    t = time()
+    N = length(refs)
+    n = length(seqs)
+    assignments = Vector{Int64}(undef,n)
+    confs = Vector{Float64}(undef,n)
+    if lp == false
+        priors, a =count_mers(refs)
+        word_priors!(priors,N) 
+         for i in 1:N
+            
+            a[i] .= log.(conditional_prob.(a[i],priors,1))
+        end
+        log_probs = a
+    else
+        log_probs = lp
     end
-    return idx +1
+     for i in 1:n
+        kmer_array = count_seq_mers(seqs[i])
+        assignment = assign(kmer_array,log_probs)
+        assignments[i] =assignment
+            sample_size = sum(kmer_array) ÷ k
+        confs[i] = bootstrap(vec(kmer_array),log_probs,assignment,sample_size,n_bootstrap)
+    end
+    return assignments, confs, log_probs
 end
 
 
-function count_ref_mers!(ref_seq,column_idx,mer_array,mer_vec,k = 8)
-    for mer in each(DNAMer{k}, ref_seq)
-        current_mer = mer.fw
-        current_mer_idx = get_mer_idx(current_mer)
-        mer_array[current_mer_idx,column_idx] = 1
-        mer_vec[current_mer_idx] +=1
-    end
+function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false)
+    a,c,l = naieve_bayes(seqs,refs,k, n_bootstrap,lp)
+    t = taxa[a,:]
+    return hcat(t,c),l
 end
-
-function count_seq_mers(seq,k = 8)
-    mask = zeros(Bool,4^k)
-    for mer in each(DNAMer{k}, seq)
-        current_mer = mer.fw
-        current_mer_idx = get_mer_idx(current_mer)
-        mask[current_mer_idx] = 1
-    end
-    return mask, (1:4^k)[mask]
-end
-
-
-function count_mers(refs, k = 8)
-    n_refs = length(refs) 
-    mer_vec= zeros(Float64,4^k)
-    mer_array= zeros(Bool,4^k,n_refs)
-    for i in 1:n_refs
-        count_ref_mers!(refs[i],i,mer_array,mer_vec,k)
-    end
-    return mer_vec, mer_array
-end
-
-function count_mers(refs, genus_vec ::Vector, k = 8)
-    n_refs = length(refs) 
-    mer_vec= zeros(Float64,4^k)
-    genus_array= zeros(Int64,4^k,maximum(genus_vec))
-    mer_array= zeros(Bool,4^k,n_refs)
-    for i in 1:n_refs
-        count_ref_mers!(refs[i],i,mer_array,mer_vec,k)
-        genus_array[:,genus_vec[i]] .+= mer_array[:,i]
-    end
-    return mer_vec, genus_array
-end
-
 
 function assign(seq_mask,log_probs) 
-    cond_probs = vec(sum(log_probs[seq_mask,:], dims = 1))
-    println(maximum(cond_probs))
+    cond_probs =[sum(log_prob[seq_mask]) for log_prob in log_probs]
     return findmax(cond_probs)[2]
 end
 
-function bootstrap(seq_inds,log_probs,assignment, sample_size) 
+function bootstrap(kmer_vec,log_probs,assignment, sample_size,n_bootstrap) 
     hits = 0
-    for i in 1:100
+    seq_inds = eachindex(kmer_vec)[kmer_vec]
+    for i in 1:n_bootstrap
         inds = rand(seq_inds,sample_size) 
-        cond_probs = vec(sum(log_probs[inds,:], dims = 1))
-        if findmax(cond_probs)[2] == assignment
+        if assign(inds,log_probs)  == assignment
             hits +=1
         end
     end
-    return hits/100
+    return hits/n_bootstrap
 end
 
-function naieve_bayes(seqs,refs)
-    N = length(refs)
-    assignments = []
-    confs = []
-    priors, a =count_mers(refs)
-    word_priors!(priors,N) 
-    log_probs = log.(conditional_prob.(a,priors,1)) 
-    for seq in seqs
-        seq_mask, seq_inds = count_seq_mers(seq)
-        sample_size = sum(seq_mask) ÷8
-        assignment = assign(seq_mask,log_probs)
-        push!(assignments,assignment)
-        push!(confs, bootstrap(seq_inds,log_probs,assignment,sample_size))
-    end
-    return assignments, confs
-end
+#### Top level function
 
-function naieve_bayes(seqs,refs,genus_vec)
-    N = length(refs)
-    assignments = []
-    confs = []
-    M = reverse([sum(genus_vec .==i) for i in 1:maximum(genus_vec)]) # reverse gives right answer. but not sure why
-    priors, a =count_mers(refs,genus_vec)
-    word_priors!(priors,N) 
-    log_probs = log.(conditional_prob.(a,priors,M')) #M` gave wrong results. need to figure out right way...
-    for seq in seqs
-        seq_mask, seq_inds = count_seq_mers(seq)
-        sample_size = sum(seq_mask)  ÷8
-        assignment = assign(seq_mask,log_probs)
-        push!(assignments,assignment)
-        push!(confs, bootstrap(seq_inds,log_probs,assignment,sample_size))
-    end
-    return assignments, confs
-end
+### Most typical function call, taking reference and target fasta input
+function assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    """
+    Use the [RDP Naive Bayesian Classifier algorithm](10.1128/AEM.00062-07) to assign taxonomic 
+    classifications based on DNA sequence data. This function takes (the paths to) two fasta files
+    `seq_fasta` and `ref_fasta`, containing target sequences and a reference database respectively.
+    It  returns `Tables.jl` compatible `ClassificationResult`, containing the target sequence IDs, 
+    target sequences, taxonomic classifications and bootstrapped confidence levels.
 
-function get_genera(fasta)
-    genera =[]
-    open(FASTA.Reader,fasta) do reader
-        for record in reader
-            push!(genera,split(identifier(record),";")[5])
-        end
-    end
-    unq = unique(genera)
-    n = length(unq)
-    mapping = Base.ImmutableDict([unq[i] => i for i in 1:n]...)
-    reverse_mapping = Base.ImmutableDict([i => unq[i] for i in 1:n]...)
-    return [mapping[genus] for genus in genera], reverse_mapping
-end
-
-function get_genera(genera ::Vector)
-    unq = unique(genera)
-    n = length(unq)
-    mapping = Base.ImmutableDict([unq[i] => i for i in 1:n]...)
-    reverse_mapping = Base.ImmutableDict([i => unq[i] for i in 1:n]...)
-    return [mapping[genus] for genus in genera], reverse_mapping
-end
-
-function assignTaxonomy(seqs,ref_fasta)
-    genera = []
-    refs = []
-    open(FASTA.Reader, ref_fasta) do reader
-        for record in reader
-            if length(findall(";",identifier(record))) >4
-                push!(refs,sequence(record))
-                push!(genera,split(identifier(record),";")[6])
-            end
-        end
-    end
-    genus_vec, genus_mapping = get_genera(genera)
-
-    assignments, confs = naieve_bayes(seqs,refs,genus_vec)
-    return hcat(assignments,[genus_mapping[a] for a in assignments],confs)
+    - `seq_fasta`: Path to a fasta of sequnces to be classified.
+    - `ref_fasta`: Path to a fasta reference database.
     
+    - `k`: Length of kmers to use.
+    - `n_bootstrap`: Number of bootstrap iterations to perform.
+    - `keep_lp`: Return array of log probabilities alongside classification result if `true` 
+    - `lp`: Array of log probabilities for the classifier to use. 
+    
+    `ref_fasta` must be a DADA2-formatted reference database. 
+    See [here](https://benjjneb.github.io/dada2/training.html) for examples.
+    """
+    seqs,ids = get_targets(seq_fasta)
+    refs,taxa = get_reference(ref_fasta)
+    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
 end
 
+### Alternatives with reference fasta and LongDNA/vector targets
+function assign_taxonomy(seqs::Vector,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    refs,taxa = get_reference(ref_fasta)
+    assign_taxonomy(seqs,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+end
+function assign_taxonomy(seqs::Vector, ids::Vector, ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    refs,taxa = get_reference(ref_fasta)
+    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+end
+function assign_taxonomy(seq::LongDNA,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    refs,taxa = get_reference(ref_fasta)
+    assign_taxonomy(seq,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+end
+function assign_taxonomy(seq::LongDNA,id,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    refs,taxa = get_reference(ref_fasta)
+    assign_taxonomy(seq,id,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+end
 
-using FASTX
+### Alternatives for working without fastas
+function assign_taxonomy(seqs::Vector,ids,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+    res = classification_result(ids,seqs,assignments)
+    return keep_lp ? (res,log_probs) : res
+end
+function assign_taxonomy(seqs::Vector,refs::Vector,taxa::Array; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+    res = classification_result(fill("",length(seqs)),seqs,assignments)
+    return keep_lp ? (res,log_probs) : res
+end
+function assign_taxonomy(seq,id,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+    res = classification_result(id,seq,assignments)
+    return keep_lp ? (res,log_probs) : res
+end
+function assign_taxonomy(seq,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+    res = classification_result("",seq,assignments)
+    return keep_lp ? (res,log_probs) : res
+end
