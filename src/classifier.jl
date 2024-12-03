@@ -54,7 +54,7 @@ Tables.columnnames(m::ClassificationResult) = names(m)
 
 
 #### Underlying algorithm
-function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp=false)
+function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
     t = time()
     N = length(refs)
     n = length(seqs)
@@ -76,14 +76,14 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp=false)
         assignment = assign(kmer_array,log_probs)
         assignments[i] =assignment
             sample_size = sum(kmer_array) ÷ k
-        confs[i] = bootstrap(vec(kmer_array),log_probs,assignment,sample_size,n_bootstrap)
+        confs[i] = bootstrap(vec(kmer_array),log_probs,genera[assignment],sample_size,n_bootstrap,genera)
     end
     return assignments, confs, log_probs
 end
 
 
 function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false)
-    a,c,l = naieve_bayes(seqs,refs,k, n_bootstrap,lp)
+    a,c,l = naieve_bayes(seqs,refs,k, n_bootstrap,lp,taxa[:,end])
     t = taxa[a,:]
     return hcat(t,c),l
 end
@@ -93,12 +93,12 @@ function assign(seq_mask,log_probs)
     return findmax(cond_probs)[2]
 end
 
-function bootstrap(kmer_vec,log_probs,assignment, sample_size,n_bootstrap) 
+function bootstrap(kmer_vec,log_probs,assignment, sample_size,n_bootstrap,genera) 
     hits = 0
     seq_inds = eachindex(kmer_vec)[kmer_vec]
     for i in 1:n_bootstrap
         inds = rand(seq_inds,sample_size) 
-        if assign(inds,log_probs)  == assignment
+        if genera[assign(inds,log_probs)]  == assignment
             hits +=1
         end
     end
@@ -160,22 +160,22 @@ end
 
 ### Alternatives for working without fastas
 function assign_taxonomy(seqs::Vector,ids,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp,taxa[:,end])
     res = classification_result(ids,seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seqs::Vector,refs::Vector,taxa::Array; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp,taxa[:,end])
     res = classification_result(fill("",length(seqs)),seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seq,id,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp,taxa[:,end])
     res = classification_result(id,seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seq,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp,taxa[:,end])
     res = classification_result("",seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end
