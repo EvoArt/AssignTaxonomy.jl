@@ -34,7 +34,7 @@ function get_targets(seq_fasta)
     seqs = []
     open(FASTA.Reader, seq_fasta) do reader
         for record in reader
-                push!(seqs,LongDNA{4}sequence(record))
+                push!(seqs,LongDNA{4}(sequence(record)))
                 push!(ids,identifier(record))
         end
     end
