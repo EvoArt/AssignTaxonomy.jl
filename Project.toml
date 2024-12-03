@@ -1,7 +1,7 @@
 name = "AssignTaxonomy"
 uuid = "941572e2-79a6-4ec3-8380-7ad5c8caa571"
 authors = ["Arthur Newbury"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 BioSequences = "7e6ae17a-c86d-528c-b3b9-7f778a29fe59"
