@@ -2,7 +2,7 @@
 #https://doi.org/10.1128/AEM.00062-07
 #The Classifier uses a feature space consisting of all possible 8-base
 #subsequences (words).
-# The psition of the word in a sequence is ignored.
+# The position of the word in a sequence is ignored.
 # Only the words occurring in the query contribute to the score.
 
 """
@@ -55,32 +55,31 @@ Tables.columnnames(m::ClassificationResult) = names(m)
 
 #### Underlying algorithm
 function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
-    t = time()
+
     N = length(refs)
     n = length(seqs)
     assignments = Vector{Int64}(undef,n)
     confs = Vector{Float64}(undef,n)
     if lp == false
+        log_probs = [zeros(Float32,4^k) for _ in 1:N]
         priors, a =count_mers(refs)
         word_priors!(priors,N) 
-         for i in 1:N
-            
-            a[i] .= log.(conditional_prob.(a[i],priors,1))
+        @batch for i in 1:N
+            log_probs[i] .= log.(conditional_prob.(a[i],priors,1))
         end
-        log_probs = a
     else
         log_probs = lp
     end
-     for i in 1:n
+    @batch for i in 1:n
         kmer_array = count_seq_mers(seqs[i])
         assignment = assign(kmer_array,log_probs)
         assignments[i] =assignment
-            sample_size = sum(kmer_array) ÷ k
+        sample_size = sum(kmer_array) ÷ k
         confs[i] = bootstrap(vec(kmer_array),log_probs,genera[assignment],sample_size,n_bootstrap,genera)
     end
+
     return assignments, confs, log_probs
 end
-
 
 function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false)
     a,c,l = naieve_bayes(seqs,refs,k, n_bootstrap,lp,taxa[:,end])
@@ -108,9 +107,6 @@ end
 #### Top level function
 
 ### Most typical function call, taking reference and target fasta input
-
-
-
 
 """
     assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
@@ -160,22 +156,22 @@ end
 
 ### Alternatives for working without fastas
 function assign_taxonomy(seqs::Vector,ids,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp,taxa[:,end])
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
     res = classification_result(ids,seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seqs::Vector,refs::Vector,taxa::Array; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp,taxa[:,end])
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
     res = classification_result(fill("",length(seqs)),seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seq,id,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp,taxa[:,end])
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
     res = classification_result(id,seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end
 function assign_taxonomy(seq,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp,taxa[:,end])
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
     res = classification_result("",seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end

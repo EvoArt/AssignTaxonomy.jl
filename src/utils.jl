@@ -1,5 +1,15 @@
 
+function count_kmers!(counts, seq::NucSeq, ::Val{K}) where K
+    @boundscheck checkbounds(counts, 1:4^K)
+    K < 33 || error("Currently supports up to K=32 only")
+    @inbounds for kmer in UnambiguousDNAMers{K}(seq)
+        counts[kmer[1].data[1] + 1] = 1
+    end
+    counts;
+end
 
+my_count_kmers(seq::NucSeq, K) = count_kmers!(zeros(UInt32, 4^K), seq, Val(K))
+my_count_kmers(seq::NucSeq, K) = count_kmers!(falses(4^K), seq, Val(K))
 #### Read in fasta files
 """
     get_reference(ref_fasta)
@@ -54,21 +64,20 @@ conditional_prob(m,P,M) = (m+P)/(M+1)
 
 function count_mers(refs, k = 8)
     n_refs = length(refs) 
-    mer_vec= [Array{Float64}(undef,fill(4,k)...) for _ in 1:n_refs]
-    tot_kmer_array= zeros(Float64,fill(4,k)...)
-     for i in 1:n_refs   
-           
+    mer_vec= [falses(4^k) for _ in 1:n_refs]
+    tot_kmer_array= zeros(Float64,4^k)
+    @batch for i in 1:n_refs   
         count_ref_mers!(refs[i],mer_vec[i],tot_kmer_array,k)
     end
     return tot_kmer_array, mer_vec
 end
 
 function count_ref_mers!(ref_seq,kmer_array,tot_kmer_array,k = 8)
-    kmer_array .= count_kmers(LongDNA{4}(ref_seq), k).values .> 0
+    kmer_array .= my_count_kmers(ref_seq,k)
     tot_kmer_array .+= kmer_array
 end
 
-function count_seq_mers(ref_seq,k = 8)
-    kmer_array = count_kmers(LongDNA{4}(ref_seq), k).values .> 0
+function count_seq_mers(seq,k = 8)
+    kmer_array = my_count_kmers(seq,k)
     return kmer_array
 end
