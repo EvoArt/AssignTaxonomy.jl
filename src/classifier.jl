@@ -55,7 +55,7 @@ Tables.columnnames(m::ClassificationResult) = names(m)
 
 #### Underlying algorithm
 function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
-
+t = time()
     N = length(refs)
     n = length(seqs)
     assignments = Vector{Int64}(undef,n)
@@ -65,19 +65,18 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
         priors, a =count_mers(refs)
         word_priors!(priors,N) 
         @batch for i in 1:N
-            log_probs[i] .= log.(conditional_prob.(a[i],priors,1))
+            @fastmath log_probs[i] .= log.(conditional_prob.(a[i],priors,1))
         end
     else
         log_probs = lp
     end
     @batch for i in 1:n
         kmer_array = count_seq_mers(seqs[i])
-        assignment = assign(kmer_array,log_probs)
+        assignment = assign(eachindex(kmer_array)[kmer_array],log_probs)
         assignments[i] =assignment
         sample_size = sum(kmer_array) ÷ k
         confs[i] = bootstrap(vec(kmer_array),log_probs,genera[assignment],sample_size,n_bootstrap,genera)
     end
-
     return assignments, confs, log_probs
 end
 
@@ -87,16 +86,33 @@ function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=f
     return hcat(t,c),l
 end
 
-function assign(seq_mask,log_probs) 
-    cond_probs =[sum(log_prob[seq_mask]) for log_prob in log_probs]
-    return findmax(cond_probs)[2]
+function assign(seq_mask,log_probs)
+
+    cp_max = Float32(-Inf)
+    ind = 1
+    for i in eachindex(log_probs)
+        cp = Float32(0)
+        @simd for j in seq_mask
+            @fastmath cp += log_probs[i][j]
+        end
+        if cp > cp_max
+            cp_max = cp
+            ind = i
+        end
+    end
+    return ind
 end
 
+
 function bootstrap(kmer_vec,log_probs,assignment, sample_size,n_bootstrap,genera) 
+
     hits = 0
     seq_inds = eachindex(kmer_vec)[kmer_vec]
+    inds =  seq_inds[1:sample_size] 
     for i in 1:n_bootstrap
-        inds = rand(seq_inds,sample_size) 
+        for j in 1:sample_size
+            inds[j] = rand(seq_inds)
+        end
         if genera[assign(inds,log_probs)]  == assignment
             hits +=1
         end

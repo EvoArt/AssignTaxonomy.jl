@@ -41,7 +41,7 @@ function get_targets(seq_fasta)
 end
 
 
-word_prior(n,N) = (n+0.5)/(N+1)
+word_prior(n,N) = @fastmath (n+0.5)/(N+1)
 
 function word_priors!(priors ::Array,N)
     for i in eachindex(priors)
@@ -49,7 +49,7 @@ function word_priors!(priors ::Array,N)
     end
 end
 
-conditional_prob(m,P,M) = (m+P)/(M+1)
+conditional_prob(m,P,M) = @fastmath (m+P)/(M+1)
 
 #### Count kmers
 
@@ -76,7 +76,7 @@ end
 
 function count_ref_mers!(ref_seq,kmer_array,tot_kmer_array,k = 8)
     kmer_array .= count_kmers(ref_seq,k)
-    tot_kmer_array .+= kmer_array
+    @fastmath tot_kmer_array .+= kmer_array
 end
 
 function count_seq_mers(seq,k = 8)
