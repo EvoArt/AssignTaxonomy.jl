@@ -5,6 +5,11 @@
 # The position of the word in a sequence is ignored.
 # Only the words occurring in the query contribute to the score.
 
+# Most compute time is spent on assignment (largely within the bootstrapping process). This 
+# is where most effort should be spent, outside of ensuring correctness and usability.
+# Memory usage is also worth looking at, to ensure that users can run the code in parallel
+# across many threads without issues.
+
 """
 The results returned by `assign_taxonomy`. Individual columns can be accessed by e.g. `my_result.Genus`, 
 and a list of column names can be accessed by `names(my_result)`. The result can 
@@ -97,7 +102,8 @@ function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=f
 end
 
 function assign(seq_mask,log_probs)
-
+    # This dominates compute time. optimization of other parts of the code base which don't
+    # speed up the assignment function are largely redundant at this point.
     cp_max = Float32(-Inf)
     ind = 1
     for i in eachindex(log_probs)
