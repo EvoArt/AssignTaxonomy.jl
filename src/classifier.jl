@@ -70,6 +70,8 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
     assignments = Vector{Int64}(undef,n)
     confs = Vector{Float64}(undef,n)
     if lp == false
+        # This gives correct results on test cases
+        # but could likely be sped up.
         log_probs = [zeros(Float32,4^k) for _ in 1:g]
         priors, a =count_mers(refs)
         word_priors!(priors,N) 
@@ -94,6 +96,7 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
 end
 
 function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false)
+    # This and sbove need a bit of a tidy up, following switch to mean over genera 
     a,c,l,g = naieve_bayes(seqs,refs,k, n_bootstrap,lp,taxa[:,end])
     gens = g[a]
     inds = [findfirst(x -> x== gen,taxa[:,end]) for gen in gens]
