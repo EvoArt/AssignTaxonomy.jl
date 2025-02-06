@@ -1,6 +1,6 @@
 module AssignTaxonomy
 
-using FASTX, BioSequences, Kmers, Tables, PrettyTables, Polyester
+using FASTX, BioSequences, Kmers, Tables, PrettyTables
 
 include("utils.jl")
 include("classifier.jl")

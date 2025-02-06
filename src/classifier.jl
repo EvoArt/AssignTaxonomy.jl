@@ -75,7 +75,7 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
         log_probs = [zeros(Float32,4^k) for _ in 1:g]
         priors, a =count_mers(refs)
         word_priors!(priors,N) 
-        @batch for i in 1:N
+        Threads.@threads for i in 1:N
             @fastmath log_probs[seq2gen[i]] .+= conditional_prob.(a[i],priors,1)
             counts[seq2gen[i]] += 1
         end
@@ -85,7 +85,7 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
     else
         log_probs = lp
     end
-    @batch for i in 1:n
+    Threads.@threads for i in 1:n
         kmer_array = count_seq_mers(seqs[i])
         assignment = assign(eachindex(kmer_array)[kmer_array],log_probs)
         assignments[i] =assignment
