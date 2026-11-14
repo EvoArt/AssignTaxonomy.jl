@@ -64,19 +64,21 @@ end
 
 count_kmers(seq::NucSeq, K) = count_kmers!(falses(4^K), seq, Val(K))
 
-function count_mers(refs, k = 8)
-    n_refs = length(refs) 
-    mer_vec= [falses(4^k) for _ in 1:n_refs]
-    tot_kmer_array= zeros(Float64,4^k)
-    @batch for i in 1:n_refs   
-        count_ref_mers!(refs[i],mer_vec[i],tot_kmer_array,k)
+# The k-mers of each reference (in parallel), and the number of references
+# containing each k-mer. The total is summed serially: adding into one shared
+# array from several threads loses updates.
+function count_mers(refs, k = 8; bar = nothing)
+    n_refs = length(refs)
+    mer_vec = Vector{BitVector}(undef, n_refs)
+    Threads.@threads for i in 1:n_refs
+        mer_vec[i] = count_kmers(refs[i], k)
+        bar === nothing || _next!(bar)
+    end
+    tot_kmer_array = zeros(Float64, 4^k)
+    for m in mer_vec
+        tot_kmer_array .+= m
     end
     return tot_kmer_array, mer_vec
-end
-
-function count_ref_mers!(ref_seq,kmer_array,tot_kmer_array,k = 8)
-    kmer_array .= count_kmers(ref_seq,k)
-    @fastmath tot_kmer_array .+= kmer_array
 end
 
 function count_seq_mers(seq,k = 8)

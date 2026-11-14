@@ -35,14 +35,6 @@ function classification_result(ids,seqs,assignments)
    
 end
 
-function Base.show(io::IO, cr::ClassificationResult)
-    pretty_table(
-    values(cr)[:,[1,8,9]];
-    formatters    = ft_printf("%5.2f", 2:4),
-    header        = names(cr)[[1,8,9]],
-    header_crayon = crayon"yellow bold")
-end
-
 Tables.istable(::Type{<:ClassificationResult}) = true
 names(m::ClassificationResult) = getfield(m, :names)
 values(m::ClassificationResult) = getfield(m, :values)
@@ -59,7 +51,7 @@ Tables.columnnames(m::ClassificationResult) = names(m)
 
 
 #### Underlying algorithm
-function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
+function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera; progress::Bool=_progress_default())
     N = length(refs)
     n = length(seqs)
     gens = sort(unique(genera))
@@ -73,31 +65,51 @@ function naieve_bayes(seqs::Vector,refs::Vector,k, n_bootstrap,lp,genera)
         # This gives correct results on test cases
         # but could likely be sped up.
         log_probs = [zeros(Float32,4^k) for _ in 1:g]
-        priors, a =count_mers(refs)
-        word_priors!(priors,N) 
-        Threads.@threads for i in 1:N
-            @fastmath log_probs[seq2gen[i]] .+= conditional_prob.(a[i],priors,1)
-            counts[seq2gen[i]] += 1
+        bar = _progress(N, "K-mers"; unit=" references", enabled=progress)
+        priors, a = count_mers(refs, k; bar=bar)
+        _finish!(bar)
+        word_priors!(priors,N)
+        # one genus per task, its references in order: each thread writes only
+        # its own genus (deterministic, no lost updates)
+        members = [Int[] for _ in 1:g]
+        for i in 1:N
+            push!(members[seq2gen[i]], i)
         end
-        for i in 1:g
-            @fastmath log_probs[i] .= log.(log_probs[i] ./ counts[i])
+        bar = _progress(g, "Training"; unit=" genera", enabled=progress)
+        Threads.@threads for gi in 1:g
+            for i in members[gi]
+                @fastmath log_probs[gi] .+= conditional_prob.(a[i],priors,1)
+            end
+            counts[gi] = length(members[gi])
+            @fastmath log_probs[gi] .= log.(log_probs[gi] ./ counts[gi])
+            _next!(bar)
         end
+        _finish!(bar; info="$(_fmt(N)) references")
     else
         log_probs = lp
     end
+    bar = _progress(n, "Classifying"; unit=" sequences", enabled=progress)
     Threads.@threads for i in 1:n
         kmer_array = count_seq_mers(seqs[i])
         assignment = assign(eachindex(kmer_array)[kmer_array],log_probs)
         assignments[i] =assignment
         sample_size = sum(kmer_array) ÷ k
         confs[i] = bootstrap(vec(kmer_array),log_probs,gens[assignment],sample_size,n_bootstrap,gens)
+        _next!(bar)
+    end
+    if progress && n > 0
+        sc = sort(confs)
+        _finish!(bar; info="$(_fmt(length(unique(assignments)))) genera" *
+                           _note(bar.io, " · median confidence $(round(sc[cld(n, 2)]; digits=2))"))
+    else
+        _finish!(bar)
     end
     return assignments, confs, log_probs, gens
 end
 
-function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false)
+function naieve_bayes(seqs::Vector,refs::Vector,taxa ::Array,k, n_bootstrap,lp=false; progress::Bool=_progress_default())
     # This and sbove need a bit of a tidy up, following switch to mean over genera 
-    a,c,l,g = naieve_bayes(seqs,refs,k, n_bootstrap,lp,taxa[:,end])
+    a,c,l,g = naieve_bayes(seqs,refs,k, n_bootstrap,lp,taxa[:,end]; progress=progress)
     gens = g[a]
     inds = [findfirst(x -> x== gen,taxa[:,end]) for gen in gens]
     t = taxa[inds,:]
@@ -144,7 +156,7 @@ end
 ### Most typical function call, taking reference and target fasta input
 
 """
-    assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+    assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress)
 
 
 Use the [RDP Naive Bayesian Classifier algorithm](https://pubmed.ncbi.nlm.nih.gov/17586664/) to assign taxonomic 
@@ -160,53 +172,56 @@ target sequences, taxonomic classifications and bootstrapped confidence levels.
 - `n_bootstrap`: Number of bootstrap iterations to perform.
 - `keep_lp`: Return array of log probabilities alongside classification result if `true` 
 - `lp`: Array of log probabilities for the classifier to use. 
+- `progress`: Show progress bars for training and classification. Defaults to on
+  in interactive sessions and terminals; set it for every call with
+  [`AssignTaxonomy.setprogress!`](@ref).
 
 `ref_fasta` must be a DADA2-formatted reference database. 
 See [here](https://benjjneb.github.io/dada2/training.html) for examples.
 """
-function assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+function assign_taxonomy(seq_fasta,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
 
     seqs,ids = get_targets(seq_fasta)
     refs,taxa = get_reference(ref_fasta)
-    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp, progress = progress)
 end
 
 ### Alternatives with reference fasta and LongDNA/vector targets
-function assign_taxonomy(seqs::Vector,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+function assign_taxonomy(seqs::Vector,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
     refs,taxa = get_reference(ref_fasta)
-    assign_taxonomy(seqs,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+    assign_taxonomy(seqs,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp, progress = progress)
 end
-function assign_taxonomy(seqs::Vector, ids::Vector, ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+function assign_taxonomy(seqs::Vector, ids::Vector, ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
     refs,taxa = get_reference(ref_fasta)
-    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+    assign_taxonomy(seqs,ids,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp, progress = progress)
 end
-function assign_taxonomy(seq::LongDNA,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+function assign_taxonomy(seq::LongDNA,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
     refs,taxa = get_reference(ref_fasta)
-    assign_taxonomy(seq,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+    assign_taxonomy(seq,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp, progress = progress)
 end
-function assign_taxonomy(seq::LongDNA,id,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
+function assign_taxonomy(seq::LongDNA,id,ref_fasta; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
     refs,taxa = get_reference(ref_fasta)
-    assign_taxonomy(seq,id,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp)
+    assign_taxonomy(seq,id,refs,taxa,k=k,n_bootstrap=n_bootstrap,keep_lp = keep_lp,lp = lp, progress = progress)
 end
 
 ### Alternatives for working without fastas
-function assign_taxonomy(seqs::Vector,ids,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+function assign_taxonomy(seqs::Vector,ids,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp; progress=progress)
     res = classification_result(ids,seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
-function assign_taxonomy(seqs::Vector,refs::Vector,taxa::Array; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp)
+function assign_taxonomy(seqs::Vector,refs::Vector,taxa::Array; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
+    assignments,log_probs = naieve_bayes(seqs,refs,taxa,k,n_bootstrap,lp; progress=progress)
     res = classification_result(fill("",length(seqs)),seqs,assignments)
     return keep_lp ? (res,log_probs) : res
 end
-function assign_taxonomy(seq,id,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+function assign_taxonomy(seq,id,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp; progress=progress)
     res = classification_result(id,seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end
-function assign_taxonomy(seq,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false)
-    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp)
+function assign_taxonomy(seq,refs,taxa; k = 8, n_bootstrap = 100,keep_lp = false,lp=false, progress::Bool = _progress_default())
+    assignments,log_probs = naieve_bayes([seq],refs,taxa,k,n_bootstrap,lp; progress=progress)
     res = classification_result("",seq,assignments)
     return keep_lp ? (res,log_probs) : res
 end
