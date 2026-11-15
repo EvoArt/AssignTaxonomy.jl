@@ -20,4 +20,5 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/EvoArt/AssignTaxonomy.jl",
+    devbranch="master",
 )

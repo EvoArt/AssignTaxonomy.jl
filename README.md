@@ -1,5 +1,7 @@
 # AssignTaxonomy.jl
 
+[Documentation](https://EvoArt.github.io/AssignTaxonomy.jl/dev/)
+
 [![CI](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml)
 
 Taxonomic classification of DNA sequences with the
