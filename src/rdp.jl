@@ -30,8 +30,6 @@ struct TaxonomyModel
 end
 nlevels(m::TaxonomyModel) = size(m.ranks, 2)
 ngenera(m::TaxonomyModel) = length(m.lineages)
-Base.show(io::IO, m::TaxonomyModel) =
-    print(io, "TaxonomyModel(", ngenera(m), " lineages, ", nlevels(m), " ranks, k=", m.k, ")")
 
 @inline function _nt(c::UInt8)
     c == UInt8('A') && return 0
@@ -260,8 +258,6 @@ struct TaxonomyTable
     boot::Matrix{Int}
 end
 Base.size(t::TaxonomyTable) = size(t.tax)
-Base.show(io::IO, t::TaxonomyTable) =
-    print(io, "TaxonomyTable(", length(t.sequences), " sequences; ", join(t.levels, ", "), ")")
 
 Tables.istable(::Type{TaxonomyTable}) = true
 Tables.columnaccess(::Type{TaxonomyTable}) = true

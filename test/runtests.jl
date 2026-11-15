@@ -35,6 +35,11 @@ randseq(rng, n) = String(rand(rng, ['A', 'C', 'G', 'T'], n))
         @test t.Genus[1] == "GenB"
         @test all(ismissing, t.tax[3, :]) && all(==(0), t.boot[3, :])   # < 50 nt
         @test t.boot[1, 1] == 100
+        txt = sprint(show, MIME"text/plain"(), t)
+        @test occursin("TaxonomyTable", txt) && occursin("GenB", txt) && occursin("boot", txt)
+        @test occursin("lineages", sprint(show, MIME"text/plain"(), model))
+        @test occursin("Species", sprint(show, MIME"text/plain"(), TaxonomyTable(["ACGT"], ["Genus", "Species"],
+                                                Union{Missing,String}[missing missing], zeros(Int, 1, 0))))
         t2 = assignTaxonomy(q, model; seed=1, tryRC=true)
         @test t2.Genus[2] == "GenC"
         @test assignTaxonomy(q, model; seed=7, outputBootstraps=true).boot ==
