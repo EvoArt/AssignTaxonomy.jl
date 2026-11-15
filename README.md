@@ -1,30 +1,55 @@
-# AssignTaxonomy
+# AssignTaxonomy.jl
 
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://evoart.github.io/AssignTaxonomy/index.html)
-[![Build Status](https://github.com/EvoArt/AssignTaxonomy.jl/workflows/CI/badge.svg)](https://github.com/EvoArt/AssignTaxonomy.jl/actions)
-[![Build Status](https://ci.appveyor.com/api/projects/status/github/EvoArt/AssignTaxonomy.jl?svg=true)](https://ci.appveyor.com/project/EvoArt/AssignTaxonomy-jl)
-[![Coverage](https://codecov.io/gh/EvoArt/AssignTaxonomy.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/EvoArt/AssignTaxonomy.jl)
+[![CI](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml)
 
+Taxonomic classification of DNA sequences with the
+[RDP naive Bayesian classifier](https://pubmed.ncbi.nlm.nih.gov/17586664/)
+(Wang et al. 2007), as in R's `dada2::assignTaxonomy`, and exact-match
+species assignment, as in `dada2::assignSpecies` and `dada2::addSpecies`.
+Results match R's.
 
-AssignTaxonomy is an all Julia implementation of the [RDP Naive Bayesian Classifier algorithm](https://pubmed.ncbi.nlm.nih.gov/17586664/) for assigning taxonomic classifications based on DNA sequences. Most users will only need to use the `assign_taxonomy` function on a pair of fasta files (one with target sequences, one with a reference database). However, additional functions are provided for reading in reference and target fasta files, for those who prefer to work with Julia data structures (e.g. vectors of DNA sequences, arrays of taxonomic classifications). 
-
-
-Results can be easily converted to `DataFrame` or saved to `CSV`
-
-```
-using AssignTaxonomy, CSV, DataFrames
-
-my_results = assign_taxonomy(targets,refs)
-df = DataFrame(my_results)
-CSV.write("my_results.csv",my_results)
+```julia
+using Pkg
+Pkg.add("AssignTaxonomy")
 ```
 
-You can also store and reuse log_probabilities from the classifier. Basically, training the model of your reference data once and then re using it on new target data.
+## Usage
 
-```
+`seqs` is a vector of sequences, a FASTA file, or a sequence table from
+[DenoiseDNA.jl](https://github.com/EvoArt/DenoiseDNA.jl). References are the
+dada2-formatted training files (see
+[the DADA2 reference databases](https://benjjneb.github.io/dada2/training.html)).
+
+```julia
 using AssignTaxonomy
 
-my_results,my_lp = assign_taxonomy(targets,refs,keep_lp = true)
-my_new_results = get_targets(some_other_target_fasta,refs,lp = my_lp)
-all_my_results = AssignTaxonomy.classification_result(vcat(values(my_results),values(my_results)))
+taxa = assignTaxonomy(seqs, "silva_nr99_v138.2_toGenus_trainset.fa.gz")
+taxa = addSpecies(taxa, "silva_v138.2_assignSpecies.fa.gz")
 ```
+
+The result is a `TaxonomyTable`, a Tables.jl table with a `Sequence` column
+and one column per rank (`missing` where the bootstrap support is below
+`minBoot=50`):
+
+```julia
+using DataFrames
+DataFrame(taxa)
+```
+
+Train once and reuse the model on several sets of sequences:
+
+```julia
+model = train_taxonomy("silva_nr99_v138.2_toGenus_trainset.fa.gz")
+taxa1 = assignTaxonomy(seqs1, model)
+taxa2 = assignTaxonomy(seqs2, model)
+```
+
+`seed` makes the bootstrap reproducible: `assignTaxonomy(seqs, ref; seed=1)`
+gives R's results after `set.seed(1)`, except for sequences whose best genera
+tie exactly, which R breaks at random.
+
+`assignSpecies(seqs, ref)` gives the genus and species of each sequence by
+exact matching alone.
+
+The older `assign_taxonomy(seq_fasta, ref_fasta)`, returning a
+`ClassificationResult`, is still available.
