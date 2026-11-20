@@ -15,5 +15,5 @@ include("classifier.jl")
 include("show.jl")
 
 export assignTaxonomy, assignSpecies, addSpecies, train_taxonomy, TaxonomyModel, TaxonomyTable,
-       assign_taxonomy, get_reference, get_targets, names, values, ClassificationResult
+       assign_taxonomy, get_reference, get_targets, ClassificationResult
 end

@@ -22,8 +22,8 @@ end
 classification_result(ids, seqs, assignments) = classification_result(hcat(ids, seqs, assignments))
 
 Tables.istable(::Type{<:ClassificationResult}) = true
-names(m::ClassificationResult) = getfield(m, :names)
-values(m::ClassificationResult) = getfield(m, :values)
+Base.names(m::ClassificationResult) = getfield(m, :names)
+Base.values(m::ClassificationResult) = getfield(m, :values)
 lookup(m::ClassificationResult) = getfield(m, :lookup)
 Tables.schema(m::ClassificationResult{T}) where {T} = Tables.Schema(names(m), fill(eltype(T), size(values(m), 2)))
 Tables.columnaccess(::Type{<:ClassificationResult}) = true
