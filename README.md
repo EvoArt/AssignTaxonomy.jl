@@ -3,6 +3,8 @@
 [Documentation](https://EvoArt.github.io/AssignTaxonomy.jl/dev/)
 
 [![CI](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/EvoArt/AssignTaxonomy.jl/actions/workflows/CI.yml)
+[![Coverage](https://codecov.io/gh/EvoArt/AssignTaxonomy.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/EvoArt/AssignTaxonomy.jl)
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://EvoArt.github.io/AssignTaxonomy.jl/dev/)
 
 Taxonomic classification of DNA sequences with the
 [RDP naive Bayesian classifier](https://pubmed.ncbi.nlm.nih.gov/17586664/)
